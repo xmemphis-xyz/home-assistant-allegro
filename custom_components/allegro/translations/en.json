@@ -103,6 +103,9 @@
             },
             "last_update": {
                 "name": "Last successful update"
+            },
+            "returned": {
+                "name": "Returned orders"
             }
         },
         "button": {

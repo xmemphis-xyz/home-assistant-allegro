@@ -103,6 +103,9 @@
             },
             "last_update": {
                 "name": "Ostatnie udane odświeżenie"
+            },
+            "returned": {
+                "name": "Zwrócone zamówienia"
             }
         },
         "button": {

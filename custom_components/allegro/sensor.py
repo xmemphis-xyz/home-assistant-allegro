@@ -22,6 +22,7 @@ from .const import (
     ICON_MESSAGES,
     ICON_OTHER_POINT,
     ICON_READY,
+    ICON_RETURN,
     ICON_TRANSIT,
     ICON_WAITING,
 )
@@ -72,6 +73,12 @@ SENSORS: tuple[AllegroSensorDescription, ...] = (
         translation_key="in_delivery",
         icon=ICON_DELIVERY,
         orders_fn=lambda data: data.in_delivery,
+    ),
+    AllegroSensorDescription(
+        key="returned",
+        translation_key="returned",
+        icon=ICON_RETURN,
+        orders_fn=lambda data: data.returned,
     ),
 )
 

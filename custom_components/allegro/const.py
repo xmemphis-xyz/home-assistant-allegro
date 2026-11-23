@@ -14,6 +14,7 @@ ICON_CART = "mdi:cart"
 ICON_MESSAGES = "mdi:email-alert"
 ICON_INVOICE = "mdi:file-document-outline"
 ICON_OTHER_POINT = "mdi:map-marker-alert"
+ICON_RETURN = "mdi:keyboard-return"
 ICON_MARK_READ = "mdi:email-open-multiple"
 ICON_MARK_OLDER_READ = "mdi:email-sync-outline"
 
