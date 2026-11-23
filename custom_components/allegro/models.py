@@ -14,14 +14,23 @@ _LOGGER = logging.getLogger(__name__)
 STATUS_DELIVERED = "DELIVERED"
 STATUS_RETURNED = "RETURNED"
 STATUS_RETURNED_TO_SENDER = "RETURNED_TO_SENDER"
+STATUS_PARTIALLY_RETURNED = "PARTIALLY_RETURNED"
 STATUS_AVAILABLE_FOR_PICKUP = "AVAILABLE_FOR_PICKUP"
 STATUS_IN_DELIVERY = "IN_DELIVERY"
 STATUS_IN_TRANSIT = "IN_TRANSIT"
 STATUS_CANCELLED = "ORDER_CANCELLED"
 STATUS_RETURN_IN_PROGRESS = "RETURN_IN_PROGRESS"
-RETURN_STATUSES = frozenset({STATUS_RETURNED, STATUS_RETURNED_TO_SENDER})
+RETURN_STATUSES = frozenset(
+    {STATUS_RETURNED, STATUS_PARTIALLY_RETURNED, STATUS_RETURNED_TO_SENDER}
+)
 COMPLETED_STATUSES = frozenset(
-    {STATUS_DELIVERED, STATUS_RETURNED, STATUS_RETURNED_TO_SENDER, STATUS_CANCELLED}
+    {
+        STATUS_DELIVERED,
+        STATUS_RETURNED,
+        STATUS_PARTIALLY_RETURNED,
+        STATUS_RETURNED_TO_SENDER,
+        STATUS_CANCELLED,
+    }
 )
 
 
@@ -527,7 +536,9 @@ class AllegroData:
     @property
     def returns(self) -> list[Order]:
         """Every order with a return, the ones still in progress first."""
-        return self.returns_in_progress + self.by_status(*RETURN_STATUSES)
+        return self.returns_in_progress + self.by_status(
+            STATUS_PARTIALLY_RETURNED, STATUS_RETURNED, STATUS_RETURNED_TO_SENDER
+        )
 
 
 def parse_cart(payload: dict[str, Any]) -> Cart:

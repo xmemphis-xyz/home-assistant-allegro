@@ -229,12 +229,13 @@ def test_returns_have_their_own_list():
                     myorder("shop_c", "DELIVERED", "W3"),
                     myorder("shop_d", "IN_TRANSIT", "W4"),
                     myorder("shop_e", "RETURN_IN_PROGRESS", "W5"),
+                    myorder("shop_f", "PARTIALLY_RETURNED", "W6"),
                 ],
             }
         ]
     }
     data = AllegroData(orders=parse_orders(payload), cart=Cart.empty())
     assert [o.seller for o in data.returns_in_progress] == ["shop_e"]
-    assert [o.seller for o in data.returns] == ["shop_e", "shop_a", "shop_b"]
+    assert [o.seller for o in data.returns] == ["shop_e", "shop_a", "shop_b", "shop_f"]
     # A return still on its way stays in the in-progress list too.
     assert [o.seller for o in data.not_delivered] == ["shop_d", "shop_e"]

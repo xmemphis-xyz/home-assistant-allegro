@@ -39,8 +39,6 @@ class AllegroSensorDescription(SensorEntityDescription):
     """Description of an Allegro orders sensor."""
 
     orders_fn: Callable[[AllegroData], list[Order]]
-    # The state, when it is not simply the number of listed orders.
-    value_fn: Callable[[AllegroData], int] | None = None
     needs_default_pickup_point: bool = False
 
 
@@ -81,7 +79,6 @@ SENSORS: tuple[AllegroSensorDescription, ...] = (
         translation_key="returns",
         icon=ICON_RETURN,
         orders_fn=lambda data: data.returns,
-        value_fn=lambda data: len(data.returns_in_progress),
     ),
 )
 
@@ -128,9 +125,6 @@ class AllegroOrdersSensor(AllegroEntity, SensorEntity):
     @property
     def native_value(self) -> int:
         """Return the number of matching orders."""
-        data = self.coordinator.data
-        if data is not None and self.entity_description.value_fn is not None:
-            return self.entity_description.value_fn(data)
         return len(self._orders)
 
     @property
