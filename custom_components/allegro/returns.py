@@ -18,6 +18,29 @@ TIMELINE_FINISHED = "FINISHED"
 _CARRIER = re.compile(r"^\s*Przewo[źz]nik:\s*(.+?)\s*$", re.IGNORECASE)
 _WAYBILL = re.compile(r"^\s*Numer przesy[łl]ki:\s*(.+?)\s*$", re.IGNORECASE)
 
+# Words of a return method id such as `free_ad_dpd_pickup_method`.
+_METHOD_WORDS = {
+    "ad": "Allegro Delivery",
+    "dpd": "DPD",
+    "inpost": "InPost",
+    "orlen": "ORLEN Paczka",
+    "pocztex": "Pocztex",
+    "poczta": "Poczta Polska",
+    "dhl": "DHL",
+    "ups": "UPS",
+    "gls": "GLS",
+    "fedex": "FedEx",
+    "one": "One Box",
+    "box": "",
+    "pickup": "Pickup",
+    "locker": "automat",
+    "lockers": "automat",
+    "paczkomat": "Paczkomat",
+    "courier": "kurier",
+    "kurier": "kurier",
+    "self": "własna wysyłka",
+}
+
 
 def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
@@ -49,6 +72,54 @@ def _datetime(value: Any) -> datetime | None:
         return datetime.fromisoformat(text)
     except ValueError:
         return None
+
+
+def _flatten(node: Any) -> str:
+    """Plain text of a rich-text node: a string, a `{content}` or `{children}`."""
+    if isinstance(node, str):
+        return node
+    if isinstance(node, list):
+        return "".join(_flatten(child) for child in node)
+    if not isinstance(node, dict):
+        return ""
+    if "content" in node:
+        return str(node.get("content") or "")
+    return _flatten(node.get("children"))
+
+
+def _instructions(nodes: Any) -> list[str]:
+    """One line per list item (or paragraph) of Allegro's sending instructions."""
+    lines: list[str] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, list):
+            for child in node:
+                walk(child)
+            return
+        node = _as_dict(node)
+        if node.get("type") == "list":
+            walk(node.get("children"))
+            return
+        if text := " ".join(_flatten(node).split()):
+            lines.append(text)
+
+    walk(nodes)
+    return lines
+
+
+def method_label(method_id: str | None) -> str | None:
+    """Readable name of a return method id, for example `Allegro Delivery DPD`."""
+    if not method_id:
+        return None
+    words = [w for w in method_id.lower().split("_") if w not in ("method", "")]
+    free = "free" in words
+    names = [
+        _METHOD_WORDS.get(w, w.upper() if len(w) <= 4 else w)
+        for w in words
+        if w != "free"
+    ]
+    label = " ".join(name for name in names if name)
+    return f"{label} (bezpłatnie)" if free else label or method_id
 
 
 def _line_texts(lines: Any) -> list[str]:
@@ -105,14 +176,15 @@ class ReturnParcel:
     last_event_date: str | None
     last_event_location: str | None
     refund: tuple[str, ...]
+    method: str | None = None
+    dispatch_code: str | None = None
+    dispatch_code_info: tuple[str, ...] = ()
+    instructions: tuple[str, ...] = ()
 
     @classmethod
     def from_api(cls, item: dict[str, Any]) -> ReturnParcel:
-        """Create a parcel from a `returnParcels` entry.
-
-        The dispatch code (`parcelDispatchInfo`) lets anyone hand the parcel in,
-        so it is left out on purpose, like the pickup codes of incoming parcels.
-        """
+        """Create a parcel from a `returnParcels` entry."""
+        dispatch = _as_dict(item.get("parcelDispatchInfo"))
         tracking = _as_dict(item.get("tracking"))
         carrier = waybill = None
         for text in _line_texts(tracking.get("lines")):
@@ -134,6 +206,13 @@ class ReturnParcel:
             last_event_date=_text(last.get("date")),
             last_event_location=_text(last.get("location")),
             refund=tuple(_line_texts(item.get("paymentLines"))),
+            method=_text(item.get("returnMethodId")),
+            dispatch_code=_text(dispatch.get("code")),
+            dispatch_code_info=tuple(
+                _line_texts(dispatch.get("prefix"))
+                + _line_texts(dispatch.get("suffix"))
+            ),
+            instructions=tuple(_instructions(item.get("instructionLines"))),
         )
 
     def as_attributes(self) -> dict[str, Any]:
@@ -145,7 +224,40 @@ class ReturnParcel:
             "last_event_date": self.last_event_date,
             "last_event_location": self.last_event_location,
             "refund": list(self.refund),
+            "method": self.method,
+            "method_label": method_label(self.method),
+            "dispatch_code": self.dispatch_code,
+            "dispatch_code_info": list(self.dispatch_code_info),
+            "instructions": list(self.instructions),
         }
+
+
+def _steps(timeline: dict[str, Any]) -> list[dict[str, Any]]:
+    """Timeline steps marked `done`, `active` or `todo`.
+
+    Allegro flags only the current step; the ones before it are done.
+    """
+    raw = [_as_dict(step) for step in _as_list(timeline.get("steps"))]
+    current = next((i for i, step in enumerate(raw) if step.get("active")), None)
+    if current is None and timeline.get("status") == TIMELINE_FINISHED:
+        current = len(raw)
+    steps = []
+    for index, step in enumerate(raw):
+        if current is None or index > current:
+            state = "todo"
+        elif index == current:
+            state = "active"
+        else:
+            state = "done"
+        steps.append(
+            {
+                "type": _text(step.get("type")),
+                "label": _text(step.get("label")),
+                "hint": _text(step.get("hint")),
+                "state": state,
+            }
+        )
+    return steps
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +276,7 @@ class Return:
     send_by: datetime | None
     items: tuple[ReturnedItem, ...]
     parcels: tuple[ReturnParcel, ...]
+    steps: tuple[dict[str, Any], ...] = ()
 
     @classmethod
     def from_api(cls, group_id: str, seller: str, item: dict[str, Any]) -> Return:
@@ -190,6 +303,7 @@ class Return:
             send_by=_datetime(item.get("shipmentExpirationDate")),
             items=tuple(ReturnedItem.from_api(_as_dict(offer)) for offer in offers),
             parcels=tuple(parcels),
+            steps=tuple(_steps(timeline)),
         )
 
     @property
@@ -220,6 +334,7 @@ class Return:
             "reasons": sorted({item.reason for item in self.items if item.reason}),
             "value": self.value,
             "currency": currency,
+            "steps": [dict(step) for step in self.steps],
             "parcels": [parcel.as_attributes() for parcel in self.parcels],
             "url": f"{ALLEGRO_ORDERS_URL}/{self.group_id}",
         }

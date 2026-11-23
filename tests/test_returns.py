@@ -34,6 +34,16 @@ GROUP = {
                             "status": "DISPATCHED",
                             "label": "Zwrot nadany",
                             "hint": "21 lis 12:13",
+                            "steps": [
+                                {"type": "CREATED", "label": "Zwrot zgłoszony"},
+                                {
+                                    "type": "DISPATCHED",
+                                    "active": True,
+                                    "label": "Zwrot nadany",
+                                },
+                                {"type": "IN_TRANSIT", "label": "Zwrot w drodze"},
+                                {"type": "FINISHED", "label": "Decyzja o zwrocie"},
+                            ],
                         },
                         "offers": [
                             {
@@ -54,7 +64,42 @@ GROUP = {
                             },
                             {
                                 "ordinal": 1,
-                                "parcelDispatchInfo": {"code": "444 555 666"},
+                                "returnMethodId": "free_ad_dpd_pickup_method",
+                                "parcelDispatchInfo": {
+                                    "prefix": [],
+                                    "code": "444 555 666",
+                                    "suffix": [
+                                        {
+                                            "content": "Ważny do 5 grudnia 2026",
+                                            "type": "secondary",
+                                        }
+                                    ],
+                                },
+                                "instructionLines": [
+                                    {
+                                        "type": "list",
+                                        "children": [
+                                            {
+                                                "type": "listItem",
+                                                "children": [
+                                                    "Zapakuj ",
+                                                    {"content": "produkt"},
+                                                    ".",
+                                                ],
+                                            },
+                                            {
+                                                "type": "listItem",
+                                                "children": [
+                                                    {
+                                                        "children": [
+                                                            "Podaj kod w punkcie DPD."
+                                                        ]
+                                                    }
+                                                ],
+                                            },
+                                        ],
+                                    }
+                                ],
                                 "tracking": tracking(
                                     "AD1",
                                     ("21 lis 2026, 12:00", "Przygotowana", None),
@@ -89,10 +134,20 @@ def test_return_details_are_parsed():
     assert second["waybill"] == "AD2"
 
 
-def test_dispatch_codes_stay_out_of_attributes():
-    text = str(parse_returns(GROUP)[0].as_attributes())
-    assert "111 222 333" not in text
-    assert "444 555 666" not in text
+def test_dispatch_code_method_and_steps():
+    attributes = parse_returns(GROUP)[0].as_attributes()
+    assert [(step["type"], step["state"]) for step in attributes["steps"]] == [
+        ("CREATED", "done"),
+        ("DISPATCHED", "active"),
+        ("IN_TRANSIT", "todo"),
+        ("FINISHED", "todo"),
+    ]
+    first = attributes["parcels"][0]
+    assert first["dispatch_code"] == "444 555 666"
+    assert first["dispatch_code_info"] == ["Ważny do 5 grudnia 2026"]
+    assert first["method"] == "free_ad_dpd_pickup_method"
+    assert first["method_label"] == "Allegro Delivery DPD Pickup (bezpłatnie)"
+    assert first["instructions"] == ["Zapakuj produkt.", "Podaj kod w punkcie DPD."]
 
 
 def test_finished_return_and_orders_without_details():
