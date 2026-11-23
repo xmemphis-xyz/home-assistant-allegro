@@ -218,7 +218,7 @@ def test_deadline_formats_and_package_list():
     assert [p.waybill for p in packages] == ["W1"] and packages[0].valid_to.day == 13
 
 
-def test_returned_orders_have_their_own_list():
+def test_returns_have_their_own_list():
     payload = {
         "orderGroups": [
             {
@@ -228,10 +228,13 @@ def test_returned_orders_have_their_own_list():
                     myorder("shop_b", "RETURNED_TO_SENDER", "W2"),
                     myorder("shop_c", "DELIVERED", "W3"),
                     myorder("shop_d", "IN_TRANSIT", "W4"),
+                    myorder("shop_e", "RETURN_IN_PROGRESS", "W5"),
                 ],
             }
         ]
     }
     data = AllegroData(orders=parse_orders(payload), cart=Cart.empty())
-    assert [o.seller for o in data.returned] == ["shop_a", "shop_b"]
-    assert [o.seller for o in data.not_delivered] == ["shop_d"]
+    assert [o.seller for o in data.returns_in_progress] == ["shop_e"]
+    assert [o.seller for o in data.returns] == ["shop_e", "shop_a", "shop_b"]
+    # A return still on its way stays in the in-progress list too.
+    assert [o.seller for o in data.not_delivered] == ["shop_d", "shop_e"]

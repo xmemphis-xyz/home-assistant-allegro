@@ -104,8 +104,8 @@
             "last_update": {
                 "name": "Last successful update"
             },
-            "returned": {
-                "name": "Returned orders"
+            "returns": {
+                "name": "Returns in progress"
             }
         },
         "button": {

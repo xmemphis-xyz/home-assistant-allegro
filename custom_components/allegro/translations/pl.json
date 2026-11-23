@@ -104,8 +104,8 @@
             "last_update": {
                 "name": "Ostatnie udane odświeżenie"
             },
-            "returned": {
-                "name": "Zwrócone zamówienia"
+            "returns": {
+                "name": "Zwroty w toku"
             }
         },
         "button": {

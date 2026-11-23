@@ -24,7 +24,7 @@ Custom Home Assistant integration for [Allegro](https://allegro.pl) buyer accoun
 | `sensor.allegro_in_delivery` | Orders in `IN_DELIVERY` status |
 | `sensor.allegro_in_transit` | Orders in `IN_TRANSIT` status |
 | `sensor.allegro_waiting_for_pickup` | Orders in `AVAILABLE_FOR_PICKUP` status |
-| `sensor.allegro_returned` | Orders in `RETURNED` or `RETURNED_TO_SENDER` status (from the 25 most recent orders) |
+| `sensor.allegro_returns` | Number of returns in progress (`RETURN_IN_PROGRESS`); `details` lists every order with a return, in progress first, then `RETURNED` and `RETURNED_TO_SENDER` (from the 25 most recent orders) |
 | `sensor.allegro_pickup_deadline` | Earliest deadline for collecting a waiting parcel (from Allegro's "Moje przesyłki"); every waiting parcel with its deadline is in the attributes |
 | `sensor.allegro_cart` | Number of items in the shopping cart (details in attributes) |
 | `sensor.allegro_waiting_in_another_pickup_point` | Parcels waiting in a pickup point other than your default one (only when a default pickup point is set) |

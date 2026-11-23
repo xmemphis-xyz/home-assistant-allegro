@@ -18,6 +18,7 @@ STATUS_AVAILABLE_FOR_PICKUP = "AVAILABLE_FOR_PICKUP"
 STATUS_IN_DELIVERY = "IN_DELIVERY"
 STATUS_IN_TRANSIT = "IN_TRANSIT"
 STATUS_CANCELLED = "ORDER_CANCELLED"
+STATUS_RETURN_IN_PROGRESS = "RETURN_IN_PROGRESS"
 RETURN_STATUSES = frozenset({STATUS_RETURNED, STATUS_RETURNED_TO_SENDER})
 COMPLETED_STATUSES = frozenset(
     {STATUS_DELIVERED, STATUS_RETURNED, STATUS_RETURNED_TO_SENDER, STATUS_CANCELLED}
@@ -519,9 +520,14 @@ class AllegroData:
         return self.by_status(STATUS_IN_DELIVERY)
 
     @property
-    def returned(self) -> list[Order]:
-        """Orders that went back: returned by the buyer or sent back to the seller."""
-        return self.by_status(*RETURN_STATUSES)
+    def returns_in_progress(self) -> list[Order]:
+        """Orders with a return that is not finished yet."""
+        return self.by_status(STATUS_RETURN_IN_PROGRESS)
+
+    @property
+    def returns(self) -> list[Order]:
+        """Every order with a return, the ones still in progress first."""
+        return self.returns_in_progress + self.by_status(*RETURN_STATUSES)
 
 
 def parse_cart(payload: dict[str, Any]) -> Cart:
