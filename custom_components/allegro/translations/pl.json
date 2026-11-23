@@ -105,7 +105,7 @@
                 "name": "Ostatnie udane odświeżenie"
             },
             "returns": {
-                "name": "Zwroty"
+                "name": "Zwroty w toku"
             }
         },
         "button": {

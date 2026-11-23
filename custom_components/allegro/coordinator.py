@@ -23,6 +23,7 @@ from .const import (
 )
 from .messages import Attachment, Messages, MessageThread
 from .models import AllegroData, Cart
+from .returns import Return
 
 _LOGGER = logging.getLogger(__package__)
 SCAN_INTERVAL = timedelta(minutes=30)
@@ -112,7 +113,34 @@ class AllegroCoordinator(DataUpdateCoordinator[AllegroData]):
             packages=packages,
             default_pickup_point=self.default_pickup_point,
         )
+        data = replace(data, returns=await self._async_fetch_returns(data))
         return await self._async_auto_read(data)
+
+    async def _async_fetch_returns(self, data: AllegroData) -> tuple[Return, ...]:
+        """Fetch return details for the order groups that have a return.
+
+        A group that fails keeps the returns from the previous update.
+        """
+        groups = data.groups_with_returns
+        if not groups:
+            return ()
+        results = await asyncio.gather(
+            *(self.api.async_get_returns(group) for group in groups),
+            return_exceptions=True,
+        )
+        previous = self.data.returns if self.data is not None else ()
+        returns: list[Return] = []
+        for group, result in zip(groups, results, strict=True):
+            if isinstance(result, AllegroApiError):
+                _LOGGER.warning(
+                    "Could not refresh Allegro return %s: %s", group, result
+                )
+                returns.extend(item for item in previous if item.group_id == group)
+            elif isinstance(result, BaseException):
+                raise result
+            else:
+                returns.extend(result)
+        return tuple(returns)
 
     def _older_threads(self, data: AllegroData) -> list[MessageThread]:
         """Unread automatic order messages that no longer need attention."""

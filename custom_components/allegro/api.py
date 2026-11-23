@@ -20,6 +20,7 @@ from .messages import (
     parse_messages,
 )
 from .models import Cart, Order, Package, parse_cart, parse_orders, parse_packages
+from .returns import Return, parse_returns
 
 TIMEOUT = aiohttp.ClientTimeout(total=10)
 DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(total=60)
@@ -138,6 +139,13 @@ class AllegroApiClient:
         if not isinstance(payload, dict):
             raise AllegroApiError("Unexpected orders response")
         return parse_orders(payload)
+
+    async def async_get_returns(self, group_id: str) -> list[Return]:
+        """Return the returns filed for one order group."""
+        payload = await self._get(f"/myorder-api/myorders/{quote(group_id)}", 3)
+        if not isinstance(payload, dict):
+            raise AllegroApiError("Unexpected order details response")
+        return parse_returns(payload)
 
     async def async_get_packages(self, zone: tzinfo | None = None) -> list[Package]:
         """Return tracking entries, including the pickup deadline of waiting parcels."""

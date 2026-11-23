@@ -74,12 +74,6 @@ SENSORS: tuple[AllegroSensorDescription, ...] = (
         icon=ICON_DELIVERY,
         orders_fn=lambda data: data.in_delivery,
     ),
-    AllegroSensorDescription(
-        key="returns",
-        translation_key="returns",
-        icon=ICON_RETURN,
-        orders_fn=lambda data: data.returns,
-    ),
 )
 
 
@@ -103,6 +97,7 @@ async def async_setup_entry(
             AllegroLastUpdateSensor(coordinator),
             AllegroMessagesSensor(coordinator),
             AllegroInvoicesSensor(coordinator),
+            AllegroReturnsSensor(coordinator),
         ]
     )
 
@@ -312,3 +307,31 @@ class AllegroLastUpdateSensor(AllegroEntity, SensorEntity):
     def native_value(self):
         """Return the time of the last successful refresh."""
         return self.coordinator.last_success
+
+
+class AllegroReturnsSensor(AllegroEntity, SensorEntity):
+    """Number of returns in progress, with every return as attributes."""
+
+    _attr_translation_key = "returns"
+    _attr_icon = ICON_RETURN
+
+    def __init__(self, coordinator: AllegroCoordinator) -> None:
+        """Initialize."""
+        super().__init__(coordinator)
+        # Same key as the earlier order-based sensor, so the entity id stays.
+        self._attr_unique_id = f"{self._user_prefix}returns"
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of returns the seller has not decided about yet."""
+        data = self.coordinator.data
+        if data is None:
+            return 0
+        return sum(1 for row in data.returns_details() if row["active"])
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return every return for dashboards, open ones first."""
+        data = self.coordinator.data
+        details = [] if data is None else data.returns_details()
+        return {"total": len(details), "details": details}

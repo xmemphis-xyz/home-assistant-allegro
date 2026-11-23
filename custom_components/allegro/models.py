@@ -7,7 +7,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from typing import Any
 
+from .const import ALLEGRO_ORDERS_URL
 from .messages import Messages
+from .returns import Return
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -259,9 +261,13 @@ class Order:
     order_date: str | None
     status: str
     delivery: Delivery
+    # Set on the group when the buyer filed a return for any of its orders.
+    rescission_id: str | None = None
 
     @classmethod
-    def from_api(cls, group_id: str, item: dict[str, Any]) -> Order:
+    def from_api(
+        cls, group_id: str, item: dict[str, Any], rescission_id: str | None = None
+    ) -> Order:
         """Create an order from a myorders item."""
         seller = _as_dict(item.get("seller"))
         status = _as_dict(_as_dict(item.get("status")).get("primary"))
@@ -274,6 +280,7 @@ class Order:
             order_date=item.get("orderDate"),
             status=str(status.get("status") or ""),
             delivery=Delivery.from_api(item.get("delivery")),
+            rescission_id=rescission_id,
         )
 
     def as_pickup(self) -> dict[str, Any]:
@@ -426,6 +433,7 @@ class AllegroData:
     messages: Messages = field(default_factory=Messages)
     default_pickup_point: str = ""
     packages: tuple[Package, ...] = ()
+    returns: tuple[Return, ...] = ()
 
     def pickup_details(
         self, *, seller: str = "", waybill: str = ""
@@ -529,16 +537,60 @@ class AllegroData:
         return self.by_status(STATUS_IN_DELIVERY)
 
     @property
-    def returns_in_progress(self) -> list[Order]:
+    def return_orders_in_progress(self) -> list[Order]:
         """Orders with a return that is not finished yet."""
         return self.by_status(STATUS_RETURN_IN_PROGRESS)
 
     @property
-    def returns(self) -> list[Order]:
-        """Every order with a return, the ones still in progress first."""
-        return self.returns_in_progress + self.by_status(
+    def return_orders(self) -> list[Order]:
+        """Every order with a return status, the ones still in progress first."""
+        return self.return_orders_in_progress + self.by_status(
             STATUS_PARTIALLY_RETURNED, STATUS_RETURNED, STATUS_RETURNED_TO_SENDER
         )
+
+    @property
+    def groups_with_returns(self) -> list[str]:
+        """Order groups whose details carry return data, in list order."""
+        groups: dict[str, None] = {}
+        for order in self.orders:
+            if (
+                order.rescission_id
+                or order.status in RETURN_STATUSES
+                or (order.status == STATUS_RETURN_IN_PROGRESS)
+            ):
+                groups[order.order_id] = None
+        return list(groups)
+
+    @property
+    def active_returns(self) -> list[Return]:
+        """Returns the seller has not decided about yet."""
+        return [item for item in self.returns if item.is_active]
+
+    def returns_details(self) -> list[dict[str, Any]]:
+        """Every return for dashboards, open ones first.
+
+        Orders with a return status but no return details (a parcel sent back
+        by the carrier, or details that could not be fetched) get a short entry.
+        """
+        covered = {item.group_id for item in self.returns}
+        rows = [item.as_attributes() for item in self.returns]
+        for order in self.return_orders:
+            if order.order_id in covered:
+                continue
+            rows.append(
+                {
+                    "reference_number": None,
+                    "seller": order.seller,
+                    "status": order.status,
+                    "status_label": None,
+                    "status_hint": None,
+                    "active": order.status == STATUS_RETURN_IN_PROGRESS,
+                    "products": [offer.title for offer in order.offers],
+                    "parcels": [],
+                    "url": f"{ALLEGRO_ORDERS_URL}/{order.order_id}",
+                }
+            )
+        return sorted(rows, key=lambda row: not row["active"])
 
 
 def parse_cart(payload: dict[str, Any]) -> Cart:
@@ -571,12 +623,13 @@ def parse_orders(payload: dict[str, Any]) -> list[Order]:
         if not myorders:
             continue
         group_id = str(group.get("groupId") or "")
+        rescission_id = _text(group.get("rescissionId"))
         # One checkout can hold several orders (different sellers, own parcels).
         for item in myorders:
             if not isinstance(item, dict):
                 continue
             try:
-                orders.append(Order.from_api(group_id, _as_dict(item)))
+                orders.append(Order.from_api(group_id, _as_dict(item), rescission_id))
             except (KeyError, TypeError, ValueError) as err:
                 _LOGGER.warning("Skipping Allegro order in group %s: %s", group_id, err)
     return orders
