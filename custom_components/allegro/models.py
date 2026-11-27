@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from typing import Any
@@ -551,15 +552,7 @@ class AllegroData:
     @property
     def groups_with_returns(self) -> list[str]:
         """Order groups whose details carry return data, in list order."""
-        groups: dict[str, None] = {}
-        for order in self.orders:
-            if (
-                order.rescission_id
-                or order.status in RETURN_STATUSES
-                or (order.status == STATUS_RETURN_IN_PROGRESS)
-            ):
-                groups[order.order_id] = None
-        return list(groups)
+        return groups_with_returns(self.orders)
 
     @property
     def active_returns(self) -> list[Return]:
@@ -575,7 +568,8 @@ class AllegroData:
         covered = {item.group_id for item in self.returns}
         rows = [item.as_attributes() for item in self.returns]
         for order in self.return_orders:
-            if order.order_id in covered:
+            # A group with a rescission has its details, possibly filtered out.
+            if order.order_id in covered or order.rescission_id:
                 continue
             rows.append(
                 {
@@ -633,3 +627,16 @@ def parse_orders(payload: dict[str, Any]) -> list[Order]:
             except (KeyError, TypeError, ValueError) as err:
                 _LOGGER.warning("Skipping Allegro order in group %s: %s", group_id, err)
     return orders
+
+
+def groups_with_returns(orders: Iterable[Order]) -> list[str]:
+    """Order groups whose details carry return data, in list order."""
+    groups: dict[str, None] = {}
+    for order in orders:
+        if (
+            order.rescission_id
+            or order.status in RETURN_STATUSES
+            or order.status == STATUS_RETURN_IN_PROGRESS
+        ):
+            groups[order.order_id] = None
+    return list(groups)

@@ -160,3 +160,64 @@ async def test_a_good_refresh_resets_the_auth_failure_count(hass):
         assert coordinator.last_update_success and not reauth_flows(hass)
     finally:
         [p.stop() for p in patches]
+
+
+async def test_returns_older_than_the_sensor_orders_are_found(hass):
+    """An open return outside the 25 newest orders still shows up."""
+    from custom_components.allegro.returns import parse_returns
+
+    recent = parse_orders(
+        {
+            "orderGroups": [
+                {"groupId": "new", "myorders": [myorder("shop_n", "DELIVERED", "W9")]}
+            ]
+        }
+    )
+    older = recent + parse_orders(
+        {
+            "orderGroups": [
+                {
+                    "groupId": "old",
+                    "rescissionId": "r1",
+                    "myorders": [myorder("shop_o", "DELIVERED", "W8")],
+                }
+            ]
+        }
+    )
+
+    async def orders(limit=25):
+        return older if limit > 25 else recent
+
+    details = parse_returns(
+        {
+            "groupId": "old",
+            "myorders": [
+                {
+                    "seller": {"login": "shop_o"},
+                    "rescissions": {
+                        "rescissions": [
+                            {
+                                "rescissionId": "r1",
+                                "referenceNumber": "OLD/2026",
+                                "timelineStatus": {"status": "CREATED"},
+                            }
+                        ]
+                    },
+                }
+            ],
+        }
+    )
+    with patch(f"{TARGET}.async_get_returns", AsyncMock(return_value=details)) as get:
+        _entry, mocks, patches = await setup(hass, orders=recent)
+        mocks["async_get_orders"].side_effect = orders
+        try:
+            coordinator = _entry.runtime_data
+            await coordinator.async_refresh()
+            await hass.async_block_till_done()
+            returns = state(hass, "returns")
+            assert returns.state == "1"
+            assert returns.attributes["details"][0]["reference_number"] == "OLD/2026"
+            get.assert_awaited_with("old")
+        finally:
+            for p in patches:
+                p.stop()

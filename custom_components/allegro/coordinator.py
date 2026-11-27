@@ -22,7 +22,7 @@ from .const import (
     DOMAIN,
 )
 from .messages import Attachment, Messages, MessageThread
-from .models import AllegroData, Cart
+from .models import AllegroData, Cart, groups_with_returns
 from .returns import Return
 
 _LOGGER = logging.getLogger(__package__)
@@ -31,6 +31,10 @@ MAX_AUTO_READ = 10
 MAX_BULK_READ = 50
 # A single 401/403 can be a hiccup or a bot check; several in a row mean a dead session.
 AUTH_FAILURES_BEFORE_REAUTH = 3
+# Returns outlive the 25 newest orders the sensors look at, so the returns
+# scan reads further back. Finished returns stay listed for a while.
+RETURNS_SCAN_LIMIT = 100
+FINISHED_RETURNS_DAYS = 30
 
 type AllegroConfigEntry = ConfigEntry["AllegroCoordinator"]
 
@@ -57,6 +61,8 @@ class AllegroCoordinator(DataUpdateCoordinator[AllegroData]):
         self.api = client
         self._auth_failures = 0
         self.last_success: datetime | None = None
+        # Finished returns do not change any more, so they are fetched once.
+        self._finished_returns: dict[str, tuple[Return, ...]] = {}
 
     @property
     def default_pickup_point(self) -> str:
@@ -117,29 +123,63 @@ class AllegroCoordinator(DataUpdateCoordinator[AllegroData]):
         return await self._async_auto_read(data)
 
     async def _async_fetch_returns(self, data: AllegroData) -> tuple[Return, ...]:
-        """Fetch return details for the order groups that have a return.
+        """Fetch the returns filed for recent orders.
 
-        A group that fails keeps the returns from the previous update.
+        Looks further back than the sensors' order list, and keeps following
+        open returns from earlier updates. A group that fails keeps the
+        returns from the previous update.
         """
-        groups = data.groups_with_returns
-        if not groups:
-            return ()
+        previous = self.data.returns if self.data is not None else ()
+        orders = list(data.orders)
+        try:
+            orders += await self.api.async_get_orders(RETURNS_SCAN_LIMIT)
+        except AllegroApiError as err:
+            _LOGGER.warning("Could not scan older Allegro orders for returns: %s", err)
+        groups = groups_with_returns(orders)
+        groups += [
+            group
+            for group in dict.fromkeys(
+                item.group_id for item in previous if item.is_active
+            )
+            if group not in groups
+        ]
+        to_fetch = [group for group in groups if group not in self._finished_returns]
         results = await asyncio.gather(
-            *(self.api.async_get_returns(group) for group in groups),
+            *(self.api.async_get_returns(group) for group in to_fetch),
             return_exceptions=True,
         )
-        previous = self.data.returns if self.data is not None else ()
-        returns: list[Return] = []
-        for group, result in zip(groups, results, strict=True):
+        fetched: dict[str, tuple[Return, ...]] = {}
+        for group, result in zip(to_fetch, results, strict=True):
             if isinstance(result, AllegroApiError):
                 _LOGGER.warning(
                     "Could not refresh Allegro return %s: %s", group, result
                 )
-                returns.extend(item for item in previous if item.group_id == group)
+                fetched[group] = tuple(
+                    item for item in previous if item.group_id == group
+                )
             elif isinstance(result, BaseException):
                 raise result
             else:
-                returns.extend(result)
+                fetched[group] = tuple(result)
+                if result and not any(item.is_active for item in result):
+                    self._finished_returns[group] = tuple(result)
+
+        # Forget finished returns that dropped out of the scanned orders.
+        self._finished_returns = {
+            group: items
+            for group, items in self._finished_returns.items()
+            if group in groups
+        }
+        cutoff = dt_util.utcnow() - timedelta(days=FINISHED_RETURNS_DAYS)
+        returns: list[Return] = []
+        for group in groups:
+            for item in self._finished_returns.get(group) or fetched.get(group, ()):
+                if (
+                    item.is_active
+                    or item.requested_at is None
+                    or item.requested_at >= cutoff
+                ):
+                    returns.append(item)
         return tuple(returns)
 
     def _older_threads(self, data: AllegroData) -> list[MessageThread]:

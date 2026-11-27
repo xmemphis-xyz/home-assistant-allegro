@@ -133,9 +133,9 @@ class AllegroApiClient:
     async def _get(self, path: str, api_ver: int, **kwargs: Any) -> Any:
         return await self._request("GET", path, api_ver, **kwargs)
 
-    async def async_get_orders(self) -> list[Order]:
-        """Return parsed buyer orders."""
-        payload = await self._get("/myorder-api/myorders?limit=25", 3)
+    async def async_get_orders(self, limit: int = 25) -> list[Order]:
+        """Return parsed buyer orders, newest first."""
+        payload = await self._get(f"/myorder-api/myorders?limit={int(limit)}", 3)
         if not isinstance(payload, dict):
             raise AllegroApiError("Unexpected orders response")
         return parse_orders(payload)
